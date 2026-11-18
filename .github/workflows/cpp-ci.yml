@@ -17,25 +17,59 @@ concurrency:
 jobs:
   build-and-test:
     runs-on: ubuntu-26.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
+
       - name: Install Clang latest
         run: |
           sudo apt-get update
           sudo apt-get install -y clang cmake
           clang++ --version
-      - name: Build C++
+
+      - name: Setup Emscripten for WASM
+        uses: emscripten-core/setup-emsdk@v15
+        with:
+          version: 6.0.10
+
+      - name: Build + Test normal C++
         run: |
           mkdir -p build
           clang++ -std=c++20 -O2 -Wall -Wextra -Werror -Isrc src/*.cpp -c -o build/core.o
-          echo "Build OK"
-      - name: Build and Run Tests + Sanitizers
-        run: |
+          echo "Normal C++ build OK"
           for f in tests/*.cpp; do
             name=$(basename "$f" .cpp)
             clang++ -std=c++20 -O2 -Wall -Wextra -Werror -Isrc -fsanitize=address,undefined "$f" build/core.o -o "build/$name" -lm
-            echo "Running $name"
             "./build/$name"
           done
-          echo "All tests passed"
+
+      - name: Build .so - normal shared library for Android
+        run: |
+          mkdir -p build
+          clang++ -std=c++20 -O2 -Wall -Wextra -fPIC -shared -Isrc src/*.cpp -o build/libengine.so -lm
+          ls -lh build/libengine.so
+          file build/libengine.so
+          echo ".so DONE - use this for Android native"
+
+      - name: Build WASM - for web
+        run: |
+          mkdir -p build
+          em++ -std=c++20 -O2 -Isrc src/*.cpp -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME="Engine" -o build/engine.js
+          ls -lh build/engine.js build/engine.wasm
+          echo "WASM DONE - use this for web"
+
+      - name: Upload .so
+        uses: actions/upload-artifact@v6
+        with:
+          name: libengine-so-${{ github.sha }}
+          path: build/libengine.so
+          retention-days: 30
+
+      - name: Upload WASM
+        uses: actions/upload-artifact@v6
+        with:
+          name: engine-wasm-${{ github.sha }}
+          path: |
+            build/engine.js
+            build/engine.wasm
+          retention-days: 30
