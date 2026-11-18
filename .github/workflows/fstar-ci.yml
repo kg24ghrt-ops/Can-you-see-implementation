@@ -1,0 +1,115 @@
+name: F* Graphics Core CI
+
+on:
+  push:
+    branches: [main, "feat/**", "fix/**"]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "Makefile"
+      - ".github/workflows/**"
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-and-build:
+    name: Verify F* + Extract C + Build C + Test
+    runs-on: ubuntu-26.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Cache OPAM
+        uses: actions/cache@v5
+        with:
+          path: ~/.opam
+          key: opam-ocaml-5.5.0-fstar-latest-${{ hashFiles('**/*.opam', '.github/workflows/fstar-ci.yml') }}
+          restore-keys: |
+            opam-ocaml-5.5.0-fstar-latest-
+
+      - name: Setup OCaml 5.5.0
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.5.0
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y z3 clang make libgmp-dev libffi-dev pkg-config
+          clang --version
+          z3 --version
+          opam --version
+
+      - name: Install F* and KaRaMeL latest stable via OPAM
+        run: |
+          opam update
+          opam install -y fstar karamel
+          eval $(opam env)
+          which fstar.exe
+          which krml
+          fstar.exe --version
+
+      - name: Verify F*
+        run: |
+          eval $(opam env)
+          ls -R src
+          if ls src/*.fst 1> /dev/null 2>&1; then
+            fstar.exe --include src src/*.fst
+          else
+            echo "No F* files yet, skipping"
+          fi
+
+      - name: Extract C with KaRaMeL
+        run: |
+          eval $(opam env)
+          mkdir -p out
+          if ls src/*.fst 1> /dev/null 2>&1; then
+            krml -bundle 'GraphicsCore=*' -o out src/*.fst || krml -o out src/*.fst
+          fi
+          ls -R out || true
+
+      - name: Build C with Clang
+        run: |
+          mkdir -p build
+          if ls out/*.c 1> /dev/null 2>&1; then
+            clang -std=c11 -O2 -Wall -Wextra -Iout -c out/*.c -o build/core.o
+            echo "C build OK"
+          fi
+          if ls tests/c/*.c 1> /dev/null 2>&1; then
+            for f in tests/c/*.c; do
+              name=$(basename "$f" .c)
+              clang -std=c11 -O2 -Wall -Wextra -Iout -Itests/c "$f" build/core.o -o "build/$name" -lm
+              echo "Built test: $name"
+            done
+          fi
+
+      - name: Run C tests
+        run: |
+          if ls build/test* 1> /dev/null 2>&1; then
+            for t in build/test*; do
+              echo "=== Running $t ==="
+              "$t"
+            done
+          else
+            echo "No C tests yet"
+          fi
+
+      - name: Upload generated C
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: generated-c-${{ github.sha }}
+          path: |
+            out/
+            build/
+          if-no-files-found: warn
+          retention-days: 30
