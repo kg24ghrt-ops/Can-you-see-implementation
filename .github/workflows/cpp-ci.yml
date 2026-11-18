@@ -1,0 +1,41 @@
+name: C++ Graphics Core CI
+
+on:
+  push:
+    branches: [main, "feat/**", "fix/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Clang latest
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake
+          clang++ --version
+      - name: Build C++
+        run: |
+          mkdir -p build
+          clang++ -std=c++20 -O2 -Wall -Wextra -Werror -Isrc src/*.cpp -c -o build/core.o
+          echo "Build OK"
+      - name: Build and Run Tests + Sanitizers
+        run: |
+          for f in tests/*.cpp; do
+            name=$(basename "$f" .cpp)
+            clang++ -std=c++20 -O2 -Wall -Wextra -Werror -Isrc -fsanitize=address,undefined "$f" build/core.o -o "build/$name" -lm
+            echo "Running $name"
+            "./build/$name"
+          done
+          echo "All tests passed"
