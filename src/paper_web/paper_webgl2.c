@@ -18,7 +18,6 @@
 #   if defined(__has_include)
 #       if __has_include(<GLES3/gl3.h>)
 #           include <GLES3/gl3.h>
-#           include <GLES3/gl3ext.h>
 #           define PAPER_HAVE_WEBGL2_HEADER 1
 #       endif
 #   endif
