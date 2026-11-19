@@ -40,9 +40,11 @@ paper_backend_t paper_web_detect(paper_backend_caps_t *caps) {
                 caps->max_texture_size = gc.max_texture_size;
             }
             wgpu->vt->destroy(wgpu);
+            free(wgpu);
             return selected;
         }
         wgpu->vt->destroy(wgpu);
+        free(wgpu);
     }
 
     /* Probe WebGL 2.0 backend. */
@@ -58,9 +60,11 @@ paper_backend_t paper_web_detect(paper_backend_caps_t *caps) {
                 caps->max_texture_size = gc.max_texture_size;
             }
             gl->vt->destroy(gl);
+            free(gl);
             return selected;
         }
         gl->vt->destroy(gl);
+        free(gl);
     }
 
     /* CPU fallback (always available). */
@@ -77,6 +81,7 @@ paper_backend_t paper_web_detect(paper_backend_caps_t *caps) {
             }
         }
         cpu->vt->destroy(cpu);
+        free(cpu);
     }
     return selected;
 }
@@ -135,6 +140,7 @@ paper_status_t paper_web_create(paper_engine_t *engine,
 
     if (backend && backend->vt->init(backend, NULL) != PAPER_OK) {
         backend->vt->destroy(backend);
+        free(backend);
         backend = NULL;
     }
 
@@ -144,6 +150,7 @@ paper_status_t paper_web_create(paper_engine_t *engine,
         tried_webgpu = 1;
         if (backend && backend->vt->init(backend, NULL) != PAPER_OK) {
             backend->vt->destroy(backend);
+            free(backend);
             backend = NULL;
         }
     }
@@ -152,6 +159,7 @@ paper_status_t paper_web_create(paper_engine_t *engine,
         tried_webgl2 = 1;
         if (backend && backend->vt->init(backend, NULL) != PAPER_OK) {
             backend->vt->destroy(backend);
+            free(backend);
             backend = NULL;
         }
     }
@@ -159,6 +167,7 @@ paper_status_t paper_web_create(paper_engine_t *engine,
         backend = paper_gpu_backend_cpu_create();
         if (backend && backend->vt->init(backend, NULL) != PAPER_OK) {
             backend->vt->destroy(backend);
+            free(backend);
             free(ctx);
             return PAPER_ERR_NOT_SUPPORTED;
         }
