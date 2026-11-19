@@ -1,4 +1,4 @@
-name: C++ Graphics Core CI
+name: Paper Rendering Engine CI
 
 on:
   push:
@@ -21,55 +21,86 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install Clang latest
+      - name: Install Clang + CMake
         run: |
           sudo apt-get update
           sudo apt-get install -y clang cmake
-          clang++ --version
+          clang --version
+          cmake --version | head -1
 
       - name: Setup Emscripten for WASM
         uses: emscripten-core/setup-emsdk@v15
         with:
           version: 6.0.10
 
-      - name: Build + Test normal C++
+      - name: Build C library + run all tests (ASan/UBSan)
         run: |
-          mkdir -p build
-          clang++ -std=c++20 -O2 -Wall -Wextra -Werror -Isrc src/*.cpp -c -o build/core.o
-          echo "Normal C++ build OK"
-          for f in tests/*.cpp; do
-            name=$(basename "$f" .cpp)
-            clang++ -std=c++20 -O2 -Wall -Wextra -Werror -Isrc -fsanitize=address,undefined "$f" build/core.o -o "build/$name" -lm
+          set -e
+          for t in tests/test_paper_*.c; do
+            name=$(basename "$t" .c)
+            clang -std=c11 -O1 -g -Wall -Wextra -Werror -Isrc "$t" src/paper/*.c src/paper_web/*.c \
+                  -o "build/$name" -lm -fsanitize=address,undefined
+            echo "=== running $name ==="
             "./build/$name"
           done
 
-      - name: Build .so - normal shared library for Android
+      - name: Build shared + static library
         run: |
-          mkdir -p build
-          clang++ -std=c++20 -O2 -Wall -Wextra -fPIC -shared -Isrc src/*.cpp -o build/libengine.so -lm
-          ls -lh build/libengine.so
-          file build/libengine.so
-          echo ".so DONE - use this for Android native"
+          set -e
+          clang -std=c11 -O2 -fPIC -Isrc -shared src/paper/*.c src/paper_web/*.c -o build/libpaper.so -lm
+          ls -lh build/libpaper.so
+          file build/libpaper.so
+          nm -D --defined-only build/libpaper.so | grep -E 'paper_'
+          clang -std=c11 -O2 -Isrc -c src/paper/*.c src/paper_web/*.c
+          ar rcs build/libpaper.a *.o
+          rm -f *.o
+          ls -lh build/libpaper.a
 
-      - name: Build WASM - for web
+      - name: Verify consumer links against shared lib (C)
         run: |
-          mkdir -p build
-          em++ -std=c++20 -O2 -Isrc src/*.cpp -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME="Engine" -o build/engine.js
-          ls -lh build/engine.js build/engine.wasm
-          echo "WASM DONE - use this for web"
+          set -e
+          cat > build/consumer.c <<'EOF'
+          #include "paper/paper.h"
+          #include <stdio.h>
+          int main(void){
+            paper_engine_t *e=NULL;
+            paper_engine_create(&e);
+            paper_engine_set_dpi(e,150.0);
+            paper_engine_set_seed(e,1u);
+            paper_pixel_buffer_t buf={0}; buf.format=PAPER_PIXEL_RGBA8888;
+            paper_engine_render(e,&buf);
+            printf("A4@150dpi=%dx%d stride=%d size=%zu\n",buf.width,buf.height,buf.stride,buf.data_size);
+            paper_buffer_release(&buf); paper_engine_destroy(e);
+            return 0;
+          }
+          EOF
+          clang -std=c11 -O2 -Isrc build/consumer.c -Lbuild -lpaper -o build/consumer -lm
+          LD_LIBRARY_PATH=build ./build/consumer
 
-      - name: Upload .so
+      - name: Build WASM (Emscripten) - verifies WebGPU/WebGL2 guarded code compiles
+        run: |
+          set -e
+          source $(dirname $(which emcc))/../emsdk_env.sh || true
+          # Compile webgpu + webgl2 guarded sources standalone to catch
+          # __EMSCRIPTEN__-only code issues without a real GPU/browser.
+          emcc -O2 -c -Isrc src/paper_web/paper_webgpu.c -o build/paper_webgpu.o
+          emcc -O2 -c -Isrc src/paper_web/paper_webgl2.c -o build/paper_webgl2.o
+          echo "WebGPU/WebGL2 guarded sources compile OK"
+          # Full WASM module with exported C API
+          emcc -O2 -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME="PaperEngine" \
+            -s EXPORTED_FUNCTIONS='["_paper_engine_create","_paper_engine_render","_paper_web_create","_paper_web_present","_paper_web_detect","_paper_buffer_release","_paper_engine_destroy","_paper_version"]' \
+            -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap"]' \
+            -Isrc src/paper/*.c src/paper_web/*.c -o build/paper.js
+          ls -lh build/paper.js build/paper.wasm
+          echo "WASM+WebGPU guarded code DONE"
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v6
         with:
-          name: libengine-so-${{ github.sha }}
-          path: build/libengine.so
-          retention-days: 30
-
-      - name: Upload WASM
-        uses: actions/upload-artifact@v6
-        with:
-          name: engine-wasm-${{ github.sha }}
+          name: paper-build-${{ github.sha }}
           path: |
-            build/engine.js
-            build/engine.wasm
+            build/libpaper.so
+            build/libpaper.a
+            build/paper.js
+            build/paper.wasm
           retention-days: 30
