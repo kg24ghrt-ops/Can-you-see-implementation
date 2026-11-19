@@ -23,6 +23,14 @@ paper_material.c  paper_layout.c  paper_stroke.c
 paper_rng.c       deterministic PCG32 + value noise / fBM
 paper_buffer.c    RGBA8888 / RGB888 pixel buffer, stride, alloc/free
 paper_size.c      physical dimensions (mm), DPI conversion, orientation
+
+Web module (WASM / browser):
+src/paper_web/paper_web.h     public web C API
+src/paper_web/paper_web.c     auto-detect + present (CPU fallback always)
+src/paper_web/paper_gpu_backend.h  GPU backend vtable interface
+src/paper_web/paper_web_cpu.c   CPU software backend (always, testable)
+src/paper_web/paper_webgpu.c    WebGPU backend (__EMSCRIPTEN__ only)
+src/paper_web/paper_webgl2.c    WebGL 2.0 backend (__EMSCRIPTEN__ only)
 ```
 
 - **Core rendering algorithms:** C (`src/paper/*.c`).

@@ -17,6 +17,12 @@ set(PAPER_SRC
     src/paper/paper_stroke.c
     src/paper/paper_buffer.c
     src/paper/paper_renderer.c
+    # Web rendering module (GPU backends guarded by __EMSCRIPTEN__;
+    # CPU fallback compiles and tests everywhere).
+    src/paper_web/paper_web.c
+    src/paper_web/paper_web_cpu.c
+    src/paper_web/paper_webgpu.c
+    src/paper_web/paper_webgl2.c
 )
 
 set(PAPER_TEST_SRC
@@ -27,6 +33,7 @@ set(PAPER_TEST_SRC
     tests/test_paper_buffer.c
     tests/test_paper_engine.c
     tests/test_paper_render.c
+    tests/test_paper_web.c
 )
 
 option(PAPER_BUILD_TESTS "Build automated tests" ON)
@@ -73,4 +80,6 @@ install(TARGETS paper paper_static
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-install(FILES src/paper/paper.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/paper)
+install(FILES src/paper/paper.h src/paper_web/paper_web.h
+             src/paper_web/paper_gpu_backend.h
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/paper)
