@@ -16,8 +16,8 @@
 #ifdef __EMSCRIPTEN__
 #   include <emscripten.h>
 #   if defined(__has_include)
-#       if __has_include(<emscripten/webgpu.h>)
-#           include <emscripten/webgpu.h>
+#       if __has_include(<webgpu/webgpu.h>)
+#           include <webgpu/webgpu.h>
 #           define PAPER_HAVE_WEBGPU_HEADER 1
 #       endif
 #   endif

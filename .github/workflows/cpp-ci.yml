@@ -99,8 +99,10 @@ jobs:
           if [ -d src/paper_web ]; then
             PAPER_SRCS="$PAPER_SRCS $(find src/paper_web -name '*.c')"
           fi
+          # --use-port=emdawnwebgpu provides <webgpu/webgpu.h> (per Emscripten docs:
+          # https://github.com/emscripten-core/emscripten/issues/12750).
           if [ -f src/paper_web/paper_webgpu.c ]; then
-            emcc -O2 -c -Isrc src/paper_web/paper_webgpu.c -o build/paper_webgpu.o
+            emcc -O2 --use-port=emdawnwebgpu -c -Isrc src/paper_web/paper_webgpu.c -o build/paper_webgpu.o
           fi
           if [ -f src/paper_web/paper_webgl2.c ]; then
             emcc -O2 -c -Isrc src/paper_web/paper_webgl2.c -o build/paper_webgl2.o
@@ -110,7 +112,7 @@ jobs:
           if [ -d src/paper_web ]; then
             EXPORTS='["_paper_engine_create","_paper_engine_render","_paper_web_create","_paper_web_present","_paper_web_detect","_paper_buffer_release","_paper_engine_destroy","_paper_version"]'
           fi
-          emcc -O2 -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME="PaperEngine" \
+          emcc -O2 --use-port=emdawnwebgpu -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME="PaperEngine" \
             -s EXPORTED_FUNCTIONS="$EXPORTS" \
             -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap"]' \
             -Isrc $PAPER_SRCS -o build/paper.js
