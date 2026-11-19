@@ -30,8 +30,14 @@ paper_status_t paper_engine_create(paper_engine_t **out) {
 
 void paper_engine_destroy(paper_engine_t *engine) {
     if (engine == NULL) return;
+    if (engine->strokes != NULL) {
+        size_t i;
+        for (i = 0; i < engine->stroke_count; i++) {
+            free(engine->strokes[i].points);
+        }
+        free(engine->strokes);
+    }
     if (engine->pixels != NULL) free(engine->pixels);
-    if (engine->strokes != NULL) free(engine->strokes);
     free(engine);
 }
 
