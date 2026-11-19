@@ -16,29 +16,36 @@ concurrency:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
 
       - name: Install Clang + CMake
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends clang cmake
+          mkdir -p build
           clang --version
           cmake --version | head -1
 
       - name: Setup Emscripten for WASM
         uses: emscripten-core/setup-emsdk@v15
         with:
-          version: 6.0.10
+          version: 6.0.13
 
       - name: Build C library + run all tests (ASan/UBSan)
         run: |
           set -e
+          mkdir -p build
+          PAPER_SRCS=$(find src/paper -name '*.c')
+          if [ -d src/paper_web ]; then
+            PAPER_SRCS="$PAPER_SRCS $(find src/paper_web -name '*.c')"
+          fi
+          echo "Sources: $PAPER_SRCS"
           for t in tests/test_paper_*.c; do
             name=$(basename "$t" .c)
-            clang -std=c11 -O1 -g -Wall -Wextra -Werror -Isrc "$t" src/paper/*.c src/paper_web/*.c \
+            clang -std=c11 -O1 -g -Wall -Wextra -Werror -Isrc "$t" $PAPER_SRCS \
                   -o "build/$name" -lm -fsanitize=address,undefined
             echo "=== running $name ==="
             "./build/$name"
@@ -47,18 +54,25 @@ jobs:
       - name: Build shared + static library
         run: |
           set -e
-          clang -std=c11 -O2 -fPIC -Isrc -shared src/paper/*.c src/paper_web/*.c -o build/libpaper.so -lm
+          mkdir -p build
+          PAPER_SRCS=$(find src/paper -name '*.c')
+          if [ -d src/paper_web ]; then
+            PAPER_SRCS="$PAPER_SRCS $(find src/paper_web -name '*.c')"
+          fi
+          clang -std=c11 -O2 -fPIC -Isrc -shared $PAPER_SRCS -o build/libpaper.so -lm
           ls -lh build/libpaper.so
           file build/libpaper.so
           nm -D --defined-only build/libpaper.so | grep -E 'paper_'
-          clang -std=c11 -O2 -Isrc -c src/paper/*.c src/paper_web/*.c
-          ar rcs build/libpaper.a *.o
-          rm -f *.o
+          for f in $PAPER_SRCS; do
+            clang -std=c11 -O2 -fPIC -Isrc -c "$f" -o "build/$(basename "$f" .c).o"
+          done
+          ar rcs build/libpaper.a build/*.o
           ls -lh build/libpaper.a
 
       - name: Verify consumer links against shared lib (C)
         run: |
           set -e
+          mkdir -p build
           cat > build/consumer.c <<'EOF'
           #include "paper/paper.h"
           #include <stdio.h>
@@ -77,20 +91,29 @@ jobs:
           clang -std=c11 -O2 -Isrc build/consumer.c -Lbuild -lpaper -o build/consumer -lm
           LD_LIBRARY_PATH=build ./build/consumer
 
-      - name: Build WASM (Emscripten) - verifies WebGPU/WebGL2 guarded code compiles
+      - name: Build WASM (Emscripten)
         run: |
           set -e
-          source $(dirname $(which emcc))/../emsdk_env.sh || true
-          # Compile webgpu + webgl2 guarded sources standalone to catch
-          # __EMSCRIPTEN__-only code issues without a real GPU/browser.
-          emcc -O2 -c -Isrc src/paper_web/paper_webgpu.c -o build/paper_webgpu.o
-          emcc -O2 -c -Isrc src/paper_web/paper_webgl2.c -o build/paper_webgl2.o
+          mkdir -p build
+          PAPER_SRCS=$(find src/paper -name '*.c')
+          if [ -d src/paper_web ]; then
+            PAPER_SRCS="$PAPER_SRCS $(find src/paper_web -name '*.c')"
+          fi
+          if [ -f src/paper_web/paper_webgpu.c ]; then
+            emcc -O2 -c -Isrc src/paper_web/paper_webgpu.c -o build/paper_webgpu.o
+          fi
+          if [ -f src/paper_web/paper_webgl2.c ]; then
+            emcc -O2 -c -Isrc src/paper_web/paper_webgl2.c -o build/paper_webgl2.o
+          fi
           echo "WebGPU/WebGL2 guarded sources compile OK"
-          # Full WASM module with exported C API
+          EXPORTS='["_paper_engine_create","_paper_engine_render","_paper_buffer_release","_paper_engine_destroy","_paper_version"]'
+          if [ -d src/paper_web ]; then
+            EXPORTS='["_paper_engine_create","_paper_engine_render","_paper_web_create","_paper_web_present","_paper_web_detect","_paper_buffer_release","_paper_engine_destroy","_paper_version"]'
+          fi
           emcc -O2 -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME="PaperEngine" \
-            -s EXPORTED_FUNCTIONS='["_paper_engine_create","_paper_engine_render","_paper_web_create","_paper_web_present","_paper_web_detect","_paper_buffer_release","_paper_engine_destroy","_paper_version"]' \
+            -s EXPORTED_FUNCTIONS="$EXPORTS" \
             -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap"]' \
-            -Isrc src/paper/*.c src/paper_web/*.c -o build/paper.js
+            -Isrc $PAPER_SRCS -o build/paper.js
           ls -lh build/paper.js build/paper.wasm
           echo "WASM+WebGPU guarded code DONE"
 
