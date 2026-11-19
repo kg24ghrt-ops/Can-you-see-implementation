@@ -178,6 +178,9 @@ paper_status_t paper_web_create(paper_engine_t *engine,
         return PAPER_ERR_INVALID_ARGUMENT;
     }
 
+    /* backend was copied by value into ctx->backend; free the wrapper. */
+    free(backend);
+
     *out = ctx;
     return PAPER_OK;
 }
